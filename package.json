@@ -1,0 +1,24 @@
+{
+  "name": "research-gateway",
+  "version": "5.0.8",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "research-gateway": "src/cli.ts"
+  },
+  "scripts": {
+    "start": "bun run src/cli.ts serve",
+    "setup": "bun run src/cli.ts setup",
+    "doctor": "bun run src/cli.ts doctor",
+    "test": "bun test ./tests",
+    "typecheck": "bun x --no-install --bun tsc --noEmit",
+    "smoke:research:opencode": "bun run scripts/smoke-research-opencode.ts"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.0",
+    "typescript": "5.9.3"
+  }
+}
