@@ -123,7 +123,9 @@ export function probeOpenCode(
   }
   const helpResult = runOpenCodeCommand(command[0], [...prefix, "run", "--help"]);
   if (helpResult.status !== 0) throw new ResearchError("executor_launch", "OpenCode run --help failed", 503);
-  const missing = REQUIRED_FLAGS.filter(flag => !helpResult.stdout.includes(flag));
+  const helpOutput = `${helpResult.stdout}
+${helpResult.stderr}`;
+  const missing = REQUIRED_FLAGS.filter(flag => !helpOutput.includes(flag));
   if (missing.length > 0) {
     throw new ResearchError("executor_launch", `OpenCode lacks required flags: ${missing.join(", ")}`, 503);
   }
@@ -217,7 +219,9 @@ async function probeOpenCodeAsync(
   if (versionResult.status !== 0 || !versionResult.stdout.trim()) throw new ResearchError("executor_launch", "OpenCode --version failed", 503);
   const helpResult = await run([...prefix, "run", "--help"]);
   if (helpResult.status !== 0) throw new ResearchError("executor_launch", "OpenCode run --help failed", 503);
-  const missing = REQUIRED_FLAGS.filter(flag => !helpResult.stdout.includes(flag));
+  const helpOutput = `${helpResult.stdout}
+${helpResult.stderr}`;
+  const missing = REQUIRED_FLAGS.filter(flag => !helpOutput.includes(flag));
   if (missing.length > 0) throw new ResearchError("executor_launch", `OpenCode lacks required flags: ${missing.join(", ")}`, 503);
   const modelsResult = await run([...prefix, "models"]);
   if (modelsResult.status !== 0) throw new ResearchError("executor_launch", "OpenCode models failed", 503);
