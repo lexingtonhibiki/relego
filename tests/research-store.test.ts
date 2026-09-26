@@ -631,7 +631,7 @@ test("report parser extracts the single JSON report from prose-wrapped final tex
       feasibility: { verdict: "feasible", notes: "内联事实。" },
       evidence: [],
       risks: [],
-      unknowns: [],
+      unknowns: ["No external source was available to verify the inline claims."],
       reportPath: "report.md",
     });
     const report = parseResearchReport(`Feasibility report written to report.md.\n${reportJson}`, workspace);
