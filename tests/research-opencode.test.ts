@@ -607,7 +607,6 @@ test("real fake OpenCode process receives exact argv, cwd, stdin, and full permi
       workspace,
       "--title",
       taskId,
-      "--auto",
     ]);
     expect(resolve(run.cwd)).toBe(resolve(workspace));
     expect(run.prompt).toBe(prompt);
@@ -746,7 +745,7 @@ test("executor re-probes version, help, and the selected model before each run",
       ["--version"],
       ["run", "--help"],
       ["models"],
-      ["run", "--format", "json", "--model", "provider/model-fast", "--dir", workspace, "--title", "rt_11111111111111111111111111111111", "--auto"],
+      ["run", "--format", "json", "--model", "provider/model-fast", "--dir", workspace, "--title", "rt_11111111111111111111111111111111"],
     ]);
   } finally {
     if (previousMode === undefined) delete process.env.FAKE_OPENCODE_MODE;

@@ -3,7 +3,7 @@ import { createInterface } from "node:readline";
 import { runCommand, type CommandSpawnError } from "./process";
 import { ResearchError, type ResearchExecutor } from "./contracts";
 
-const REQUIRED_FLAGS = ["--format", "--model", "--dir", "--title", "--auto"];
+const REQUIRED_FLAGS = ["--format", "--model", "--dir", "--title"];
 const MAX_STDOUT_BYTES = 8 * 1024 * 1024;
 const MAX_STDERR_BYTES = 64 * 1024;
 const KILL_GRACE_MS = 2_000;
@@ -436,7 +436,6 @@ export function createOpenCodeExecutor(capabilities: OpenCodeCapabilities): Rese
       job.workspacePath,
       "--title",
       job.taskId,
-      "--auto",
     ];
     const invocation = commandInvocation(currentCapabilities.command[0], args);
     const child = spawn(invocation.executable, invocation.args, {

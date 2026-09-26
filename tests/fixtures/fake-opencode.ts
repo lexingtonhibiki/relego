@@ -48,7 +48,7 @@ if (args[0] === "models") {
   process.exit(0);
 }
 if (args[0] === "run" && args.includes("--help")) {
-  process.stdout.write("--format\n--model\n--dir\n--title\n--auto\n");
+  process.stdout.write("--format\n--model\n--dir\n--title\n");
   process.exit(0);
 }
 if (args[0] !== "run") {
