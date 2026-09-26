@@ -1,6 +1,6 @@
-import { RESEARCH_PROTOCOL_VERSION } from "../src/research/contracts";
-import { loadResearchConfig } from "../src/research/config";
-import { runResearchLiveSmoke } from "../src/research/smoke";
+import { RESEARCH_PROTOCOL_VERSION } from "../src/contracts";
+import { loadResearchConfig } from "../src/config";
+import { runResearchLiveSmoke } from "../src/smoke";
 
 if (process.argv.includes("--help")) {
   process.stdout.write("Usage: bun run smoke:research:opencode\n");

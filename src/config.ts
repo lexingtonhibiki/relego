@@ -1,61 +1,126 @@
-import { chmodSync, mkdirSync, openSync, closeSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { randomBytes } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
+import { atomicWriteFile, expandUserPath, getConfigDir, stripUtf8Bom } from "./system";
+import { RESEARCH_MODEL_PATTERN } from "./contracts";
 
-export function expandUserPath(value: string): string {
-  if (value === "~") return homedir();
-  if (value.startsWith("~/") || value.startsWith("~\\")) return join(homedir(), value.slice(2));
-  return value;
+export interface ResearchConfig {
+  version: 1;
+  host: "127.0.0.1";
+  port: number;
+  controlToken: string;
+  workspaceRoot: string;
+  opencodeCommand: [string, ...string[]];
+  defaultModel: string;
+  defaultTimeoutMs: number;
+  maxConcurrency: number;
+  heartbeatMs: number;
 }
 
-export function getConfigDir(): string {
-  const configured = process.env.CODEX_CHATGPT_WEB_HOME?.trim();
-  return resolve(expandUserPath(configured || join(homedir(), ".codex-chatgpt-web")));
+export interface ResearchConfigInput {
+  port: number;
+  workspaceRoot: string;
+  opencodeCommand: [string, ...string[]];
+  defaultModel: string;
+  defaultTimeoutMs: number;
+  maxConcurrency: number;
+  heartbeatMs: number;
 }
 
-const atomicWaitCell = new Int32Array(new SharedArrayBuffer(4));
-const WINDOWS_RENAME_RETRY_DELAYS_MS = [25, 50, 100, 150, 250, 350, 500] as const;
+export function getResearchConfigPath(): string {
+  return join(getConfigDir(), "research", "config.json");
+}
 
-function renameAtomicFile(source: string, destination: string): void {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      renameSync(source, destination);
-      return;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      const transientWindowsError = process.platform === "win32"
-        && (code === "EBUSY" || code === "EPERM" || code === "EACCES");
-      const delay = WINDOWS_RENAME_RETRY_DELAYS_MS[attempt];
-      if (!transientWindowsError || delay === undefined) throw error;
-      Atomics.wait(atomicWaitCell, 0, 0, delay);
+export function createResearchConfig(input: ResearchConfigInput): ResearchConfig {
+  return parseResearchConfig({
+    version: 1,
+    host: "127.0.0.1",
+    port: input.port,
+    controlToken: randomBytes(32).toString("base64url"),
+    workspaceRoot: resolve(expandUserPath(input.workspaceRoot)),
+    opencodeCommand: input.opencodeCommand,
+    defaultModel: input.defaultModel,
+    defaultTimeoutMs: input.defaultTimeoutMs,
+    maxConcurrency: input.maxConcurrency,
+    heartbeatMs: input.heartbeatMs,
+  }, getResearchConfigPath());
+}
+
+export function parseResearchConfig(value: unknown, path = getResearchConfigPath()): ResearchConfig {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid research configuration object in ${path}`);
+  }
+  const config = value as Partial<ResearchConfig>;
+  if (config.version !== 1) throw new Error(`Unsupported research configuration version in ${path}`);
+  if (config.host !== "127.0.0.1") throw new Error("host must be 127.0.0.1");
+  if (!Number.isInteger(config.port) || config.port! < 0 || config.port! > 65_535) {
+    throw new Error(`Invalid port in ${path}`);
+  }
+  if (typeof config.controlToken !== "string" || !/^[A-Za-z0-9_-]{40,}$/.test(config.controlToken)) {
+    throw new Error(`Invalid controlToken in ${path}`);
+  }
+  if (typeof config.workspaceRoot !== "string" || !isAbsolute(expandUserPath(config.workspaceRoot))) {
+    throw new Error(`workspaceRoot must be absolute in ${path}`);
+  }
+  if (!Array.isArray(config.opencodeCommand) || config.opencodeCommand.length === 0
+    || config.opencodeCommand.some(part => typeof part !== "string" || !part.trim())
+    || !isAbsolute(expandUserPath(config.opencodeCommand[0]!))) {
+    throw new Error(`opencodeCommand[0] must be an absolute executable path in ${path}`);
+  }
+  if (typeof config.defaultModel !== "string" || !RESEARCH_MODEL_PATTERN.test(config.defaultModel.trim())) {
+    throw new Error(`Invalid defaultModel in ${path}`);
+  }
+  if (!Number.isInteger(config.defaultTimeoutMs) || config.defaultTimeoutMs! < 1_000
+    || config.defaultTimeoutMs! > 3_600_000) {
+    throw new Error(`Invalid defaultTimeoutMs in ${path}`);
+  }
+  if (!Number.isInteger(config.maxConcurrency) || config.maxConcurrency! < 1 || config.maxConcurrency! > 8) {
+    throw new Error(`Invalid maxConcurrency in ${path}`);
+  }
+  if (!Number.isInteger(config.heartbeatMs) || config.heartbeatMs! < 1_000 || config.heartbeatMs! > 60_000) {
+    throw new Error(`Invalid heartbeatMs in ${path}`);
+  }
+  const allowedKeys = new Set([
+    "version",
+    "host",
+    "port",
+    "controlToken",
+    "workspaceRoot",
+    "opencodeCommand",
+    "defaultModel",
+    "defaultTimeoutMs",
+    "maxConcurrency",
+    "heartbeatMs",
+  ]);
+  for (const key of Object.keys(config)) {
+    if (!allowedKeys.has(key)) {
+      throw new Error(`Unknown research configuration field ${JSON.stringify(key)} in ${path}`);
     }
   }
+  const opencodeCommand = config.opencodeCommand as [string, ...string[]];
+  return {
+    version: 1,
+    host: "127.0.0.1",
+    port: config.port!,
+    controlToken: config.controlToken,
+    workspaceRoot: resolve(expandUserPath(config.workspaceRoot)),
+    opencodeCommand: [resolve(expandUserPath(opencodeCommand[0])), ...opencodeCommand.slice(1)],
+    defaultModel: config.defaultModel.trim(),
+    defaultTimeoutMs: config.defaultTimeoutMs!,
+    maxConcurrency: config.maxConcurrency!,
+    heartbeatMs: config.heartbeatMs!,
+  };
 }
 
-export function atomicWriteFile(
-  path: string,
-  data: string | Uint8Array,
-  { mode = 0o600, protectDirectory = true }: { mode?: number; protectDirectory?: boolean } = {},
-): void {
-  const directory = dirname(path);
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
-  if (protectDirectory) {
-    try { chmodSync(directory, 0o700); } catch { /* Windows ACLs are managed by the installer. */ }
+export function loadResearchConfig(): ResearchConfig {
+  const path = getResearchConfigPath();
+  if (!existsSync(path)) {
+    throw new Error(`Research configuration is missing: ${path}. Run research-gateway setup first.`);
   }
-  const temp = `${path}.tmp-${process.pid}-${crypto.randomUUID()}`;
-  const fd = openSync(temp, "wx", mode);
-  try {
-    writeFileSync(fd, data);
-    closeSync(fd);
-    renameAtomicFile(temp, path);
-  } catch (error) {
-    try { closeSync(fd); } catch {}
-    rmSync(temp, { force: true });
-    throw error;
-  }
-  try { chmodSync(path, mode); } catch { /* Windows ACLs are managed by the installer. */ }
+  return parseResearchConfig(JSON.parse(stripUtf8Bom(readFileSync(path, "utf8"))), path);
 }
 
-export function stripUtf8Bom(text: string): string {
-  return text.startsWith("\uFEFF") ? text.slice(1) : text;
+export function saveResearchConfig(config: ResearchConfig): void {
+  const path = getResearchConfigPath();
+  atomicWriteFile(path, `${JSON.stringify(parseResearchConfig(config, path), null, 2)}\n`);
 }

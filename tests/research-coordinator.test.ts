@@ -12,10 +12,10 @@ import {
   type ResearchSubmissionRecord,
   type ResearchTaskSnapshot,
   type ResearchTaskStatus,
-} from "../src/research/contracts";
-import { createResearchConfig, type ResearchConfigInput } from "../src/research/config";
-import { ResearchCoordinator, type ResearchCoordinatorOptions } from "../src/research/coordinator";
-import { ResearchStore } from "../src/research/store";
+} from "../src/contracts";
+import { createResearchConfig, type ResearchConfigInput } from "../src/config";
+import { ResearchCoordinator, type ResearchCoordinatorOptions } from "../src/coordinator";
+import { ResearchStore } from "../src/store";
 
 function request(tasks: Array<{
   clientKey: string;

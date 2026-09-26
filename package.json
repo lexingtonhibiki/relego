@@ -1,6 +1,6 @@
 {
   "name": "research-gateway",
-  "version": "5.0.8",
+  "version": "0.1.0",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -12,7 +12,7 @@
     "doctor": "bun run src/cli.ts doctor",
     "test": "bun test ./tests",
     "typecheck": "bun x --no-install --bun tsc --noEmit",
-    "smoke:research:opencode": "bun run scripts/smoke-research-opencode.ts"
+    "smoke:opencode": "bun run scripts/smoke-opencode.ts"
   },
   "dependencies": {
     "zod": "4.4.3"

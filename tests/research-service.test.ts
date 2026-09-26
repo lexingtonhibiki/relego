@@ -2,10 +2,10 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RESEARCH_PROTOCOL_VERSION, type ResearchExecutor, type ResearchTaskSnapshot } from "../src/research/contracts";
-import { createResearchConfig } from "../src/research/config";
-import { startResearchService } from "../src/research/service";
-import { ResearchStore } from "../src/research/store";
+import { RESEARCH_PROTOCOL_VERSION, type ResearchExecutor, type ResearchTaskSnapshot } from "../src/contracts";
+import { createResearchConfig } from "../src/config";
+import { startResearchService } from "../src/service";
+import { ResearchStore } from "../src/store";
 
 async function fixture() {
   const root = mkdtempSync(join(tmpdir(), "ccweb-research-service-"));

@@ -5,14 +5,14 @@ import * as fs from "node:fs";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import * as config from "../src/config";
+import * as config from "../src/system";
 import {
   RESEARCH_PROTOCOL_VERSION,
   ResearchError,
   type ResearchArtifactKind,
-} from "../src/research/contracts";
-import { assertRegularFileInside, buildPartialReport, parseResearchReport } from "../src/research/report";
-import { ResearchStore } from "../src/research/store";
+} from "../src/contracts";
+import { assertRegularFileInside, buildPartialReport, parseResearchReport } from "../src/report";
+import { ResearchStore } from "../src/store";
 
 function task(taskId: string, batchId: string) {
   return {

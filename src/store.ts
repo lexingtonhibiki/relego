@@ -11,7 +11,7 @@ import {
   type Dirent,
 } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { atomicWriteFile } from "../config";
+import { atomicWriteFile } from "./system";
 import {
   RESEARCH_BATCH_ID_PATTERN,
   RESEARCH_TASK_ID_PATTERN,

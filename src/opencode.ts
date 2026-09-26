@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
-import { runCommand, type CommandSpawnError } from "../process";
+import { runCommand, type CommandSpawnError } from "./process";
 import { ResearchError, type ResearchExecutor } from "./contracts";
 
 const REQUIRED_FLAGS = ["--format", "--model", "--dir", "--title", "--auto"];

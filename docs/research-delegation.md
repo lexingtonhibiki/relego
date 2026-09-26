@@ -11,11 +11,11 @@ The MVP supports one OpenCode executor, one local loopback listener, 1–16 task
 OpenCode must already be installed and authenticated for the selected model.
 
 ```bash
-codex-chatgpt-web research setup \
+research-gateway setup \
   --model provider/model-fast \
   --opencode /absolute/path/to/opencode \
   --port 17842 \
-  --workspace ~/.codex-chatgpt-web/research/jobs
+  --workspace ~/.research-gateway/jobs
 ```
 
 Setup stores `research/config.json` with a random control token. It verifies `opencode --version`, `opencode run --help`, and `opencode models`. A missing flag or model fails setup; the gateway never falls back to another model.
@@ -23,7 +23,7 @@ Setup stores `research/config.json` with a random control token. It verifies `op
 ## Run the service
 
 ```bash
-codex-chatgpt-web research serve
+research-gateway serve
 ```
 
 The service binds only `127.0.0.1`. All `/v1/research/*` routes require the stored bearer token. The service must remain running for asynchronous submission and status queries.
@@ -49,16 +49,16 @@ Create `request.json`:
 Synchronous:
 
 ```bash
-codex-chatgpt-web research run request.json
+research-gateway run request.json
 ```
 
 Asynchronous:
 
 ```bash
-codex-chatgpt-web research submit request.json
-codex-chatgpt-web research status rt_0123456789abcdef0123456789abcdef
-codex-chatgpt-web research cancel rt_0123456789abcdef0123456789abcdef
-codex-chatgpt-web research doctor
+research-gateway submit request.json
+research-gateway status rt_0123456789abcdef0123456789abcdef
+research-gateway cancel rt_0123456789abcdef0123456789abcdef
+research-gateway doctor
 ```
 
 CLI commands emit one JSON document on stdout. Diagnostics use stderr. `run` exits 0 only when every task is `succeeded`; a valid task failure is reported in the JSON and exits 1.
@@ -107,7 +107,7 @@ Client disconnect does not cancel accepted work. Cancellation is explicit and id
 The deterministic test suite uses a fake OpenCode executable. The real-model smoke is opt-in:
 
 ```bash
-bun run smoke:research:opencode
+bun run smoke:opencode
 ```
 
 It uses an isolated temporary workspace and store, an inline-fact task to avoid depending on a website, then validates the real model selection, report schema, artifact path, and service cleanup without inspecting or modifying the production research store. It does not prove factual accuracy.

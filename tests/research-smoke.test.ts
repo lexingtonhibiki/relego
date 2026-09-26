@@ -2,10 +2,10 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RESEARCH_PROTOCOL_VERSION, type ResearchTaskSnapshot } from "../src/research/contracts";
-import { createResearchConfig } from "../src/research/config";
-import { ResearchStore } from "../src/research/store";
-import { runResearchLiveSmoke } from "../src/research/smoke";
+import { RESEARCH_PROTOCOL_VERSION, type ResearchTaskSnapshot } from "../src/contracts";
+import { createResearchConfig } from "../src/config";
+import { ResearchStore } from "../src/store";
+import { runResearchLiveSmoke } from "../src/smoke";
 
 function task(store: ResearchStore, taskId: string, batchId: string): ResearchTaskSnapshot {
   return {

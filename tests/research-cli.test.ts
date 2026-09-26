@@ -2,9 +2,9 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { RESEARCH_PROTOCOL_VERSION, type ResearchExecutor } from "../src/research/contracts";
-import { createResearchConfig } from "../src/research/config";
-import { startResearchService } from "../src/research/service";
+import { RESEARCH_PROTOCOL_VERSION, type ResearchExecutor } from "../src/contracts";
+import { createResearchConfig } from "../src/config";
+import { startResearchService } from "../src/service";
 
 setDefaultTimeout(60_000);
 

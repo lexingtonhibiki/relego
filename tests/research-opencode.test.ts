@@ -11,8 +11,8 @@ import {
   probeOpenCode,
   redact,
   type OpenCodeEventState,
-} from "../src/research/opencode";
-import { ResearchError } from "../src/research/contracts";
+} from "../src/opencode";
+import { ResearchError } from "../src/contracts";
 
 const fixture = resolve(import.meta.dir, "fixtures/fake-opencode.ts");
 const SUBPROCESS_TEST_TIMEOUT_MS = 60_000;

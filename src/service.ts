@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { ZodError } from "zod";
-import { VERSION } from "../version";
+import { VERSION } from "./version";
 import {
   ResearchBatchRequestSchema,
   ResearchError,
@@ -154,7 +154,7 @@ export function startResearchService(
       if (request.method === "GET" && url.pathname === "/healthz") {
         return Response.json({
           status: "ok",
-          service: "codex-chatgpt-web-research",
+          service: "research-gateway",
           version: VERSION,
           pid: process.pid,
           port: server.port,

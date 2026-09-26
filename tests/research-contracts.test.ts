@@ -6,14 +6,14 @@ import {
   RESEARCH_PROTOCOL_VERSION,
   ResearchBatchRequestSchema,
   ResearchReportSchema,
-} from "../src/research/contracts";
+} from "../src/contracts";
 import {
   createResearchConfig,
   getResearchConfigPath,
   loadResearchConfig,
   parseResearchConfig,
   saveResearchConfig,
-} from "../src/research/config";
+} from "../src/config";
 
 const validRequest = {
   protocolVersion: RESEARCH_PROTOCOL_VERSION,
@@ -88,8 +88,8 @@ test("research config rejects unknown top-level fields", () => {
 
 test("research config is separate, strict, atomic, and round-trips", () => {
   const root = mkdtempSync(join(tmpdir(), "ccweb-research-config-"));
-  const previousHome = process.env.CODEX_CHATGPT_WEB_HOME;
-  process.env.CODEX_CHATGPT_WEB_HOME = root;
+  const previousHome = process.env.RESEARCH_GATEWAY_HOME;
+  process.env.RESEARCH_GATEWAY_HOME = root;
   try {
     const config = createResearchConfig({
       port: 0,
@@ -113,8 +113,8 @@ test("research config is separate, strict, atomic, and round-trips", () => {
     expect(() => parseResearchConfig({ ...config, host: "0.0.0.0" }, getResearchConfigPath()))
       .toThrow("host must be 127.0.0.1");
   } finally {
-    if (previousHome === undefined) delete process.env.CODEX_CHATGPT_WEB_HOME;
-    else process.env.CODEX_CHATGPT_WEB_HOME = previousHome;
+    if (previousHome === undefined) delete process.env.RESEARCH_GATEWAY_HOME;
+    else process.env.RESEARCH_GATEWAY_HOME = previousHome;
     rmSync(root, { recursive: true, force: true });
   }
 });
