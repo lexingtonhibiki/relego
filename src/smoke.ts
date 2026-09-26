@@ -19,6 +19,7 @@ export async function runResearchLiveSmoke(
   const temporaryRoot = mkdtempSync(join(tmpdir(), "ccweb-research-live-smoke-"));
   const config = { ...base, port: 0, workspaceRoot: join(temporaryRoot, "jobs") };
   let service: ReturnType<typeof startResearchService> | undefined;
+  let succeeded = false;
   try {
     const capabilities = (dependencies.probe ?? probeOpenCode)(config.opencodeCommand, config.defaultModel);
     service = startResearchService(config, {
@@ -39,6 +40,7 @@ export async function runResearchLiveSmoke(
     if (!task || task.status !== "succeeded" || !task.report) {
       throw new Error(`Live research smoke failed: ${JSON.stringify(task)}`);
     }
+    succeeded = true;
     return {
       status: task.status,
       taskId: task.taskId,
@@ -48,6 +50,11 @@ export async function runResearchLiveSmoke(
     };
   } finally {
     if (service) await service.stop();
-    rmSync(temporaryRoot, { recursive: true, force: true });
+    if (succeeded) {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    } else {
+      process.stdout.write(`smoke workspace preserved for diagnosis: ${temporaryRoot}
+`);
+    }
   }
 }
