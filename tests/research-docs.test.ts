@@ -7,10 +7,10 @@ const root = resolve(import.meta.dir, "..");
 test("research documentation names setup, lifecycle, artifacts, recovery, and security limits", () => {
   const document = readFileSync(resolve(root, "docs/research-delegation.md"), "utf8");
   for (const exact of [
-    "research-gateway setup",
-    "research-gateway serve",
-    "research-gateway run",
-    "research-gateway submit",
+    "relego setup",
+    "relego serve",
+    "relego run",
+    "relego submit",
     "timed_out",
     "interrupted",
     "partial_report",

@@ -1,10 +1,10 @@
 {
-  "name": "research-gateway",
+  "name": "relego",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "research-gateway": "src/cli.ts"
+    "relego": "src/cli.ts"
   },
   "scripts": {
     "start": "bun run src/cli.ts serve",

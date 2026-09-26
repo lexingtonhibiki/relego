@@ -154,7 +154,7 @@ export function startResearchService(
       if (request.method === "GET" && url.pathname === "/healthz") {
         return Response.json({
           status: "ok",
-          service: "research-gateway",
+          service: "relego",
           version: VERSION,
           pid: process.pid,
           port: server.port,

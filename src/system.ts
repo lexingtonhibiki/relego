@@ -10,7 +10,7 @@ export function expandUserPath(value: string): string {
 
 export function getConfigDir(): string {
   const configured = process.env.RESEARCH_GATEWAY_HOME?.trim();
-  return resolve(expandUserPath(configured || join(homedir(), ".research-gateway")));
+  return resolve(expandUserPath(configured || join(homedir(), ".relego")));
 }
 
 const atomicWaitCell = new Int32Array(new SharedArrayBuffer(4));

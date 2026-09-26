@@ -1,4 +1,4 @@
-# research-gateway
+# relego
 
 A local research delegation gateway: agents (Codex, Claude Code, ZCode, ...) submit bounded research tasks to a low-cost OpenCode executor and receive structured findings — summary, feasibility verdict, evidence, risks, unknowns — plus a detailed report artifact.
 

@@ -115,7 +115,7 @@ export function parseResearchConfig(value: unknown, path = getResearchConfigPath
 export function loadResearchConfig(): ResearchConfig {
   const path = getResearchConfigPath();
   if (!existsSync(path)) {
-    throw new Error(`Research configuration is missing: ${path}. Run research-gateway setup first.`);
+    throw new Error(`Research configuration is missing: ${path}. Run relego setup first.`);
   }
   return parseResearchConfig(JSON.parse(stripUtf8Bom(readFileSync(path, "utf8"))), path);
 }

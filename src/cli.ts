@@ -195,18 +195,18 @@ export async function runResearchCli(args: string[]): Promise<void> {
   else throw new Error("Research command must be: setup, serve, run, submit, status, cancel, or doctor");
 }
 
-const HELP = `research-gateway ${VERSION}
+const HELP = `relego ${VERSION}
 
 Local research delegation gateway backed by a local OpenCode executor.
 
 Usage:
-  research-gateway research setup --model provider/model [options]
-  research-gateway research serve
-  research-gateway research run REQUEST.json
-  research-gateway research submit REQUEST.json
-  research-gateway research status TASK_ID
-  research-gateway research cancel TASK_ID
-  research-gateway research doctor
+  relego research setup --model provider/model [options]
+  relego research serve
+  relego research run REQUEST.json
+  relego research submit REQUEST.json
+  relego research status TASK_ID
+  relego research cancel TASK_ID
+  relego research doctor
 
 Options:
   --home PATH   Override the configuration home directory
@@ -232,7 +232,7 @@ if (import.meta.main) {
   } else {
     if (args[0] === "research") args.shift();
     runResearchCli(args).catch((error: unknown) => {
-      process.stderr.write(`research-gateway: ${error instanceof Error ? error.message : String(error)}\n`);
+      process.stderr.write(`relego: ${error instanceof Error ? error.message : String(error)}\n`);
       process.exitCode = 1;
     });
   }

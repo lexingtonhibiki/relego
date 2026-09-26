@@ -1,4 +1,4 @@
-# research-gateway
+# relego
 
 本地调研委派网关：Agent（Codex、Claude Code、ZCode 等）把有边界的调研任务提交给低成本的 OpenCode 执行器，收回结构化结论 —— 摘要、可行性判定、证据、风险、未知项 —— 以及详细报告工件。
 
