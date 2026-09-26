@@ -620,6 +620,29 @@ test("report parser accepts infeasible findings and rejects an empty report file
   }
 });
 
+test("report parser extracts the single JSON report from prose-wrapped final text", () => {
+  const root = mkdtempSync(join(tmpdir(), "ccweb-research-report-prose-"));
+  try {
+    const workspace = join(root, "workspace");
+    mkdirSync(workspace, { recursive: true });
+    writeFileSync(join(workspace, "report.md"), "# Full report\n", { mode: 0o600 });
+    const reportJson = JSON.stringify({
+      summary: "结论。",
+      feasibility: { verdict: "feasible", notes: "内联事实。" },
+      evidence: [],
+      risks: [],
+      unknowns: [],
+      reportPath: "report.md",
+    });
+    const report = parseResearchReport(`Feasibility report written to report.md.\n${reportJson}`, workspace);
+    expect(report.feasibility.verdict).toBe("feasible");
+    expect(() => parseResearchReport(`${reportJson}${reportJson}`, workspace)).toThrow("invalid_report");
+    expect(() => parseResearchReport("no braces at all", workspace)).toThrow("invalid_report");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("report parser classifies raw non-exact paths as unsafe and malformed paths as invalid", () => {
   const root = mkdtempSync(join(tmpdir(), "ccweb-research-report-classification-"));
   try {

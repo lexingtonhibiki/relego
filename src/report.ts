@@ -91,13 +91,28 @@ export function assertRegularFileInside(path: string, root: string): string {
   return real;
 }
 
-export function parseResearchReport(text: string, workspacePath: string): ResearchReport {
-  let value: unknown;
+function extractJsonReport(text: string): unknown {
   try {
-    value = JSON.parse(text);
+    return JSON.parse(text);
+  } catch {}
+  // The binding contract says the final text must CONTAIN exactly one JSON
+  // object; executors often prepend a prose sentence. The first-{-to-last-}
+  // slice enforces exactly one balanced object: concatenated objects or stray
+  // braces still fail closed.
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) {
+    throw new ResearchError("invalid_report", "invalid_report: OpenCode final text is not one JSON report", 422);
+  }
+  try {
+    return JSON.parse(text.slice(start, end + 1));
   } catch {
     throw new ResearchError("invalid_report", "invalid_report: OpenCode final text is not one JSON report", 422);
   }
+}
+
+export function parseResearchReport(text: string, workspacePath: string): ResearchReport {
+  const value = extractJsonReport(text);
   const reportPath = typeof value === "object" && value !== null
     ? (value as { reportPath?: unknown }).reportPath
     : undefined;
