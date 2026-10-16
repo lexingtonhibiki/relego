@@ -73,7 +73,16 @@ Timeout, cancellation, executor failure, crash, and service interruption preserv
 
 ## Idempotency and concurrency
 
-HTTP callers may send `Idempotency-Key`. The same key and canonical request return the original batch; the same key with a different request returns HTTP 409. The CLI generates a UUID key for each invocation. A batch is fully validated before any executor starts. `maxConcurrency` defaults to 2 and is configurable from 1 through 8.
+HTTP callers may send `Idempotency-Key`. The same key and canonical request return the original batch; the same key with a different request returns HTTP 409. The CLI generates a new UUID key for each invocation unless `run` or `submit` receives `--idempotency-key KEY`:
+
+```bash
+relego submit request.json --idempotency-key pricing-2026-09-attempt-1
+relego run request.json --idempotency-key pricing-2026-09-attempt-1
+```
+
+Keep the same non-blank key and request when retrying after a disconnect, or when waiting for an earlier submission with `run`. This returns the original batch rather than starting duplicate work, including when that batch has already failed or completed. Use a new key for an intentional new attempt. Without the flag, rerunning a CLI command still creates a new batch.
+
+A batch is fully validated before any executor starts. `maxConcurrency` defaults to 2 and is configurable from 1 through 8.
 
 ## Storage and recovery
 
