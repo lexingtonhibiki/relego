@@ -109,7 +109,11 @@ async function doctorCommand(args: string[]): Promise<void> {
   let service: { ok: boolean; status?: number; body?: unknown } = { ok: false };
   try {
     const response = await fetch(`http://${config.host}:${config.port}/healthz`);
-    service = { ok: response.ok, status: response.status, body: await response.json() };
+    const body: unknown = await response.json();
+    const healthy = body !== null && typeof body === "object" && !Array.isArray(body)
+      && "service" in body && body.service === "relego"
+      && "status" in body && body.status === "ok";
+    service = { ok: response.ok && healthy, status: response.status, body };
   } catch (error) {
     service = { ok: false, body: { error: error instanceof Error ? error.message : String(error) } };
   }

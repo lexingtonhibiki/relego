@@ -462,3 +462,72 @@ test("retrying an interrupted research CLI client with the same key does not dup
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test.each([
+  ["unrelated service", { status: "ok", service: "other-service" }, 200, false],
+  ["unhealthy gateway", { status: "degraded", service: "relego" }, 200, false],
+  ["missing identity", { status: "ok" }, 200, false],
+  ["null body", null, 200, false],
+  ["array body", [], 200, false],
+  ["HTTP failure", { status: "ok", service: "relego" }, 503, false],
+  ["healthy gateway", { status: "ok", service: "relego" }, 200, true],
+] as const)("research doctor checks health identity and status: %s", async (_label, body, status, healthy) => {
+  const root = mkdtempSync(join(tmpdir(), "relego-doctor-health-"));
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(request) {
+      expect(new URL(request.url).pathname).toBe("/healthz");
+      return Response.json(body, { status });
+    },
+  });
+  try {
+    const config = createTestConfig(root, server.port);
+    config.opencodeCommand = [process.execPath, resolve(import.meta.dir, "fixtures/fake-opencode.ts")];
+    writeTestConfig(root, config);
+    const result = await runCli(["--home", root, "doctor"]);
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(healthy ? 0 : 1);
+    const diagnostic = JSON.parse(result.stdout);
+    expect(diagnostic.status).toBe(healthy ? "ok" : "degraded");
+    expect(diagnostic.service).toEqual({ ok: healthy, status, body });
+  } finally {
+    await server.stop(true);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("research doctor recognizes the real gateway and reports an unavailable service", async () => {
+  const root = mkdtempSync(join(tmpdir(), "relego-doctor-gateway-"));
+  const initial = createTestConfig(root);
+  initial.opencodeCommand = [process.execPath, resolve(import.meta.dir, "fixtures/fake-opencode.ts")];
+  const service = startResearchService(initial, {
+    executor: async () => { throw new Error("doctor must not execute research"); },
+    models: new Set(["provider/model-fast"]),
+  });
+  try {
+    const port = service.server.port;
+    if (port === undefined) throw new Error("research service did not receive a port");
+    writeTestConfig(root, { ...initial, port });
+    const healthy = await runCli(["--home", root, "doctor"]);
+    expect(healthy.exitCode).toBe(0);
+    expect(healthy.stderr).toBe("");
+    const diagnostic = JSON.parse(healthy.stdout);
+    expect(diagnostic.status).toBe("ok");
+    expect(diagnostic.service.ok).toBeTrue();
+    expect(diagnostic.service.body.service).toBe("relego");
+    expect(diagnostic.service.body.activeTasks).toBe(0);
+    await service.stop();
+    const unavailable = await runCli(["--home", root, "doctor"]);
+    expect(unavailable.exitCode).toBe(1);
+    expect(unavailable.stderr).toBe("");
+    const failedDiagnostic = JSON.parse(unavailable.stdout);
+    expect(failedDiagnostic.status).toBe("degraded");
+    expect(failedDiagnostic.service.ok).toBeFalse();
+    expect(failedDiagnostic.service.body.error).toBeString();
+  } finally {
+    await service.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
