@@ -1122,3 +1122,42 @@ test("restart interrupts running work without rerunning it and separately resume
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+for (const elapsedMs of [999, 1_000, 1_001]) {
+  test(`executor completion at ${elapsedMs}ms respects the absolute deadline before its timer fires`, async () => {
+    const { root, config, store } = fixtureRoot("relego-delayed-deadline-");
+    const scheduler = new ManualScheduler();
+    let job: ResearchExecutorJob | undefined;
+    const coordinator = new ResearchCoordinator(config, store, async currentJob => {
+      job = currentJob;
+      currentJob.onPartial("work completed before deadline dispatch");
+      writeFileSync(join(currentJob.workspacePath, "report.md"), "# report\n");
+      // A busy event loop can resume the executor before dispatching an overdue timer.
+      scheduler.setTime(scheduler.currentTime + elapsedMs);
+      return successfulResult();
+    }, new Set(["provider/model-fast"]), scheduler.options);
+    try {
+      const submitted = await coordinator.submitBatch(request([
+        { clientKey: "late", description: "delayed timer dispatch" },
+      ]));
+      const completed = await coordinator.waitForBatch(submitted.batchId);
+      const task = completed.tasks[0]!;
+      if (elapsedMs < config.defaultTimeoutMs) {
+        expect(task.status).toBe("succeeded");
+        expect(job!.signal.aborted).toBeFalse();
+      } else {
+        expect(task.status).toBe("timed_out");
+        expect(task.error?.code).toBe("deadline_exceeded");
+        expect(task.report).toBeNull();
+        expect(task.artifacts.map(artifact => artifact.kind)).toEqual(["partial_report"]);
+        expect(existsSync(join(store.root, "jobs", task.taskId, "artifacts", "detailed-report.md"))).toBeFalse();
+        expect(job!.signal.aborted).toBeTrue();
+      }
+      expect(scheduler.activeTimeouts()).toEqual([]);
+      expect(scheduler.activeIntervals()).toEqual([]);
+    } finally {
+      await coordinator.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
