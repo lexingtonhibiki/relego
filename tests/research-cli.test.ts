@@ -2,8 +2,9 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { RESEARCH_PROTOCOL_VERSION, type ResearchExecutor } from "../src/contracts";
+import { RESEARCH_PROTOCOL_VERSION, type ResearchBatchSnapshot, type ResearchExecutor } from "../src/contracts";
 import { createResearchConfig } from "../src/config";
+import { createOpenCodeExecutor, probeOpenCode } from "../src/opencode";
 import { startResearchService } from "../src/service";
 
 setDefaultTimeout(60_000);
@@ -44,6 +45,163 @@ function writeTestRequest(path: string, description = "one"): void {
     protocolVersion: RESEARCH_PROTOCOL_VERSION,
     tasks: [{ clientKey: "one", description }],
   })}\n`);
+}
+
+test("research run and submit forward explicit keys and otherwise generate fresh UUIDs", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ccweb-research-cli-keys-"));
+  const received: Array<{ method: string; path: string; key: string | null; body: unknown }> = [];
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(request) {
+      const url = new URL(request.url);
+      received.push({
+        method: request.method,
+        path: url.pathname + url.search,
+        key: request.headers.get("idempotency-key"),
+        body: await request.json(),
+      });
+      return Response.json({ tasks: [] }, { status: url.searchParams.get("wait") === "true" ? 200 : 202 });
+    },
+  });
+  try {
+    writeTestConfig(root, createTestConfig(root, server.port));
+    const requestPath = join(root, "request.json");
+    writeTestRequest(requestPath);
+    const generated: string[] = [];
+    for (const command of ["run", "submit"]) {
+      for (const args of [
+        [requestPath, "--idempotency-key", "retry-key"],
+        ["--idempotency-key", " retry-key ", requestPath],
+        [requestPath],
+        [requestPath],
+      ]) {
+        const result = await runCli(["--home", root, "research", command, ...args]);
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr).toBe("");
+        const request = received.at(-1)!;
+        expect(request.method).toBe("POST");
+        expect(request.path).toBe(`/v1/research/batches?wait=${command === "run"}`);
+        expect(request.body).toEqual(JSON.parse(readFileSync(requestPath, "utf8")));
+        if (args.includes("--idempotency-key")) {
+          expect(request.key).toBe("retry-key");
+        } else {
+          expect(request.key).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
+          generated.push(request.key!);
+        }
+      }
+    }
+    expect(received).toHaveLength(8);
+    expect(new Set(generated).size).toBe(4);
+  } finally {
+    server.stop(true);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("research run and submit reject missing or blank idempotency keys before submission", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ccweb-research-cli-invalid-key-"));
+  let requests = 0;
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch() {
+      requests += 1;
+      return Response.json({ tasks: [] });
+    },
+  });
+  try {
+    writeTestConfig(root, createTestConfig(root, server.port));
+    const requestPath = join(root, "request.json");
+    writeTestRequest(requestPath);
+    for (const command of ["run", "submit"]) {
+      for (const [values, message] of [
+        [[], "--idempotency-key requires a value"],
+        [[""], "--idempotency-key requires a value"],
+        [["--unknown"], "--idempotency-key requires a value"],
+        [[" \t "], "--idempotency-key must not be blank"],
+      ] as const) {
+        const result = await runCli(["--home", root, "research", command, requestPath, "--idempotency-key", ...values]);
+        expect(result.exitCode).toBe(1);
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toContain(message);
+      }
+    }
+    expect(requests).toBe(0);
+  } finally {
+    server.stop(true);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+for (const command of ["run", "submit"]) {
+  test(`research ${command} retries reuse one execution and reject conflicting requests`, async () => {
+    const root = mkdtempSync(join(tmpdir(), "ccweb-research-cli-retry-"));
+    let service: ReturnType<typeof startResearchService> | undefined;
+    let calls = 0;
+    try {
+      const initial = { ...createTestConfig(root), defaultTimeoutMs: 10_000 };
+      const capabilities = probeOpenCode(
+        [process.execPath, resolve(import.meta.dir, "fixtures/fake-opencode.ts")],
+        initial.defaultModel,
+      );
+      const executor = createOpenCodeExecutor(capabilities);
+      service = startResearchService(initial, {
+        executor: async job => { calls += 1; return executor(job); },
+        models: new Set(capabilities.models),
+      });
+      writeTestConfig(root, { ...initial, port: service.server.port! });
+      const requestPath = join(root, "request.json");
+      writeTestRequest(requestPath);
+      const args = ["--home", root, "research", command, requestPath, "--idempotency-key", "retry-key"];
+      const first = await runCli(args);
+      expect(first.exitCode).toBe(0);
+      expect(first.stderr).toBe("");
+      const original = JSON.parse(first.stdout) as ResearchBatchSnapshot;
+      const retry = await runCli(args);
+      expect(retry.exitCode).toBe(0);
+      expect(retry.stderr).toBe("");
+      const repeated = JSON.parse(retry.stdout) as ResearchBatchSnapshot;
+      expect(repeated.batchId).toBe(original.batchId);
+      expect(repeated.tasks[0]?.taskId).toBe(original.tasks[0]?.taskId);
+      const completed = await service.coordinator.waitForBatch(original.batchId);
+      expect(completed.tasks[0]?.status).toBe("succeeded");
+      expect(calls).toBe(1);
+
+      // A submit can also be resumed with run, using the same request and key.
+      const resumed = await runCli(["--home", root, "research", "run", requestPath, "--idempotency-key", "retry-key"]);
+      expect(resumed.exitCode).toBe(0);
+      expect(JSON.parse(resumed.stdout)).toEqual(completed);
+      expect(calls).toBe(1);
+
+      writeTestRequest(requestPath, "changed request");
+      const conflict = await runCli(args);
+      expect(conflict.exitCode).toBe(1);
+      expect(conflict.stdout).toBe("");
+      expect(conflict.stderr).toContain("Research service returned 409:");
+      expect(conflict.stderr).toContain('"code":"idempotency_conflict"');
+      expect(calls).toBe(1);
+
+      // Omitting the flag still creates a fresh batch for each invocation.
+      writeTestRequest(requestPath);
+      const batchIds = [original.batchId];
+      const taskIds = [original.tasks[0]!.taskId];
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const fresh = await runCli(["--home", root, "research", command, requestPath]);
+        expect(fresh.exitCode).toBe(0);
+        const snapshot = JSON.parse(fresh.stdout) as ResearchBatchSnapshot;
+        batchIds.push(snapshot.batchId);
+        taskIds.push(snapshot.tasks[0]!.taskId);
+        expect((await service.coordinator.waitForBatch(snapshot.batchId)).tasks[0]?.status).toBe("succeeded");
+      }
+      expect(new Set(batchIds).size).toBe(3);
+      expect(new Set(taskIds).size).toBe(3);
+      expect(calls).toBe(3);
+    } finally {
+      await service?.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 }
 
 test("research run, submit, status, and cancel use one JSON stdout document", async () => {
@@ -186,10 +344,11 @@ test("research run prints a failed batch and exits 1 without stderr diagnostics"
   const root = mkdtempSync(join(tmpdir(), "ccweb-research-cli-failed-"));
   const requestPath = join(root, "request.json");
   let service: ReturnType<typeof startResearchService> | undefined;
+  let calls = 0;
   try {
     const initial = createTestConfig(root);
     service = startResearchService(initial, {
-      executor: async () => { throw new Error("fixture failure"); },
+      executor: async () => { calls += 1; throw new Error("fixture failure"); },
       models: new Set(["provider/model-fast"]),
     });
     const port = service.server.port;
@@ -197,18 +356,24 @@ test("research run prints a failed batch and exits 1 without stderr diagnostics"
     writeTestConfig(root, { ...initial, port });
     writeTestRequest(requestPath, "fail");
     const original = readFileSync(requestPath);
-    const result = await runCli(["--home", root, "research", "run", requestPath]);
+    const args = ["--home", root, "research", "run", requestPath, "--idempotency-key", "failed-batch"];
+    const result = await runCli(args);
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toBe("");
     expect(JSON.parse(result.stdout).tasks[0].status).toBe("failed");
     expect(readFileSync(requestPath).equals(original)).toBeTrue();
+    const retry = await runCli(args);
+    expect(retry.exitCode).toBe(1);
+    expect(retry.stderr).toBe("");
+    expect(JSON.parse(retry.stdout)).toEqual(JSON.parse(result.stdout));
+    expect(calls).toBe(1);
   } finally {
     await service?.stop();
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("interrupting a research CLI client does not cancel accepted service work", async () => {
+test("retrying an interrupted research CLI client with the same key does not duplicate work", async () => {
   const root = mkdtempSync(join(tmpdir(), "ccweb-research-cli-interrupt-"));
   const requestPath = join(root, "request.json");
   let release!: () => void;
@@ -216,13 +381,15 @@ test("interrupting a research CLI client does not cancel accepted service work",
   let markStarted!: () => void;
   const started = new Promise<void>(resolve => { markStarted = resolve; });
   let taskId = "";
+  let calls = 0;
   let aborted = false;
   let service: ReturnType<typeof startResearchService> | undefined;
   let child: ReturnType<typeof Bun.spawn> | undefined;
   try {
-    const initial = createTestConfig(root);
+    const initial = { ...createTestConfig(root), defaultTimeoutMs: 10_000 };
     service = startResearchService(initial, {
       executor: async job => {
+        calls += 1;
         taskId = job.taskId;
         job.signal.addEventListener("abort", () => { aborted = true; }, { once: true });
         markStarted();
@@ -248,6 +415,7 @@ test("interrupting a research CLI client does not cancel accepted service work",
       resolve(import.meta.dir, "../src/cli.ts"),
       "--home", root,
       "research", "run", requestPath,
+      "--idempotency-key", "interrupted-client",
     ], {
       env: { ...process.env },
       stdout: "pipe",
@@ -262,6 +430,14 @@ test("interrupting a research CLI client does not cancel accepted service work",
     expect(exitCode).not.toBe(0);
     expect(await stdout).toBe("");
     expect(await stderr).toBe("");
+    const resumed = await runCli([
+      "--home", root, "research", "submit", requestPath,
+      "--idempotency-key", "interrupted-client",
+    ]);
+    expect(resumed.exitCode).toBe(0);
+    expect(resumed.stderr).toBe("");
+    expect(JSON.parse(resumed.stdout).tasks[0]).toMatchObject({ taskId, status: "running" });
+    expect(calls).toBe(1);
     release();
     const deadline = Date.now() + 10_000;
     let status = service.coordinator.getTask(taskId).status;
@@ -271,6 +447,14 @@ test("interrupting a research CLI client does not cancel accepted service work",
     }
     expect(status).toBe("succeeded");
     expect(aborted).toBeFalse();
+    const retry = await runCli([
+      "--home", root, "research", "run", requestPath,
+      "--idempotency-key", "interrupted-client",
+    ]);
+    expect(retry.exitCode).toBe(0);
+    expect(retry.stderr).toBe("");
+    expect(JSON.parse(retry.stdout).tasks[0]).toMatchObject({ taskId, status: "succeeded" });
+    expect(calls).toBe(1);
   } finally {
     release();
     child?.kill("SIGKILL");

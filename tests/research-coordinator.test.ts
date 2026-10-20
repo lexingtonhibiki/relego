@@ -491,10 +491,12 @@ test("FIFO input order is preserved while maxConcurrency limits active executors
   const jobs: ResearchExecutorJob[] = [];
   const gates = Array.from({ length: 4 }, () => deferred<ResearchExecutorResult>());
   const thirdStarted = deferred<void>();
+  const fourthStarted = deferred<void>();
   const coordinator = new ResearchCoordinator(config, store, job => {
     const index = jobs.length;
     jobs.push(job);
     if (index === 2) thirdStarted.resolve();
+    if (index === 3) fourthStarted.resolve();
     job.signal.addEventListener("abort", () => gates[index]!.reject(job.signal.reason), { once: true });
     return gates[index]!.promise;
   }, new Set(["provider/model-fast"]), scheduler.options);
@@ -515,6 +517,7 @@ test("FIFO input order is preserved while maxConcurrency limits active executors
     expect(jobs.map(job => job.taskId)).toEqual(submitted.tasks.slice(0, 3).map(task => task.taskId));
 
     for (const index of [1, 2, 3]) {
+      if (index === 3) await fourthStarted.promise;
       await Bun.write(join(jobs[index]!.workspacePath, "report.md"), `# ${index + 1}\n`);
       gates[index]!.resolve(successfulResult());
     }

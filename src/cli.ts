@@ -144,12 +144,14 @@ function requestBody(path: string): string {
 }
 
 async function submitCommand(args: string[], wait: boolean): Promise<void> {
+  const suppliedKey = option(args, "--idempotency-key")?.trim();
+  if (suppliedKey === "") throw new Error("--idempotency-key must not be blank");
   const path = args.shift();
   noArgs(args);
   if (!path) throw new Error(`research ${wait ? "run" : "submit"} requires REQUEST.json`);
   const config = loadResearchConfig();
   const request = ResearchBatchRequestSchema.parse(JSON.parse(requestBody(path)));
-  const idempotencyKey = randomUUID();
+  const idempotencyKey = suppliedKey ?? randomUUID();
   const result = await api(config, `/v1/research/batches?wait=${wait ? "true" : "false"}`, {
     method: "POST",
     headers: { "idempotency-key": idempotencyKey },
@@ -202,14 +204,15 @@ Local research delegation gateway backed by a local OpenCode executor.
 Usage:
   relego research setup --model provider/model [options]
   relego research serve
-  relego research run REQUEST.json
-  relego research submit REQUEST.json
+  relego research run REQUEST.json [--idempotency-key KEY]
+  relego research submit REQUEST.json [--idempotency-key KEY]
   relego research status TASK_ID
   relego research cancel TASK_ID
   relego research doctor
 
 Options:
   --home PATH   Override the configuration home directory
+  --idempotency-key KEY   Reuse a batch on retry (run/submit; default: new UUID)
 `;
 
 function takeOption(args: string[], name: string): string | undefined {

@@ -213,6 +213,13 @@ test("probe timeout tears down its local descendant process tree", async () => {
     tree = readProcessTree(readyPath);
     expect(tree).not.toBeNull();
     expect(isAlive(tree?.parentPid)).toBe(false);
+    // Allow the OS to reap a terminated descendant, but still require its PID to disappear.
+    const reapDeadline = Date.now() + 1_000;
+    while (isAlive(tree?.childPid)) {
+      const remaining = reapDeadline - Date.now();
+      if (remaining <= 0) break;
+      await Bun.sleep(Math.min(10, remaining));
+    }
     expect(isAlive(tree?.childPid)).toBe(false);
   } finally {
     if (tree) {
