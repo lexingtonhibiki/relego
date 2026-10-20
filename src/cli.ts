@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
