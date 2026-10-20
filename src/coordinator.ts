@@ -384,7 +384,9 @@ export class ResearchCoordinator {
   }
 
   private async execute(task: ResearchTaskSnapshot, active: ActiveTask): Promise<void> {
-    const startedAt = new Date(this.now()).toISOString();
+    const started = this.now();
+    const startedAt = new Date(started).toISOString();
+    const deadlineAt = started + task.timeoutMs;
     let current: ResearchTaskSnapshot = {
       ...task,
       status: "running",
@@ -394,6 +396,24 @@ export class ResearchCoordinator {
     let detailedArtifact: ResearchArtifact | null = null;
     let heartbeat: number | undefined;
     let deadline: number | undefined;
+
+    const expire = (): void => {
+      if (active.stopReason || current.status !== "running") return;
+      active.stopReason = "deadline_exceeded";
+      current = { ...current, status: "cancelling" };
+      try {
+        this.store.saveTask(current);
+      } catch (error) {
+        this.recordFailure(active, error);
+      } finally {
+        active.controller.abort(new Error("Research deadline exceeded"));
+      }
+    };
+    const assertNotStopped = (): void => {
+      // Timers may run late when the event loop is busy. Never publish a late result.
+      if (this.now() >= deadlineAt) expire();
+      if (active.stopReason) throw active.controller.signal.reason ?? new Error("Research task stopped");
+    };
 
     const liveTask = (): ResearchTaskSnapshot | undefined => {
       if (active.stopReason || current.status !== "running") return undefined;
@@ -420,18 +440,7 @@ export class ResearchCoordinator {
     try {
       this.store.saveTask(current);
       heartbeat = this.setInterval(heartbeatNow, this.config.heartbeatMs);
-      deadline = this.setTimeout(() => {
-        if (active.stopReason || current.status !== "running") return;
-        active.stopReason = "deadline_exceeded";
-        current = { ...current, status: "cancelling" };
-        try {
-          this.store.saveTask(current);
-        } catch (error) {
-          this.recordFailure(active, error);
-        } finally {
-          active.controller.abort(new Error("Research deadline exceeded"));
-        }
-      }, current.timeoutMs);
+      deadline = this.setTimeout(expire, Math.max(0, deadlineAt - this.now()));
 
       const result = await this.executor({
         taskId: current.taskId,
@@ -451,11 +460,12 @@ export class ResearchCoordinator {
         current = persisted;
         return;
       }
+      assertNotStopped();
       const report = parseResearchReport(result.finalText, this.store.workspacePath(current.taskId));
-      if (active.stopReason) throw active.controller.signal.reason ?? new Error("Research task stopped");
+      assertNotStopped();
       const artifact = this.store.publishArtifact(current, "detailed_report");
       detailedArtifact = artifact;
-      if (active.stopReason) throw active.controller.signal.reason ?? new Error("Research task stopped");
+      assertNotStopped();
       current = {
         ...current,
         status: "succeeded",
