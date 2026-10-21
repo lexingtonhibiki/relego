@@ -446,6 +446,7 @@ export class ResearchCoordinator {
         },
       });
       if (active.stopReason) throw active.controller.signal.reason ?? new Error("Research task stopped");
+      if (active.failure) throw active.failure;
       const persisted = this.store.getTask(current.taskId);
       if (persisted && persisted.status !== "running") {
         current = persisted;

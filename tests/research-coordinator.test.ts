@@ -1122,3 +1122,46 @@ test("restart interrupts running work without rerunning it and separately resume
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test("heartbeat persistence failure cannot publish a late successful result", async () => {
+  const { root, config } = fixtureRoot("relego-heartbeat-publication-");
+  let runningWrites = 0;
+  const store = new FailingResearchStore(config.workspaceRoot, task =>
+    task.status === "running" && ++runningWrites === 2,
+  );
+  const enteredCleanup = deferred<ResearchExecutorJob>();
+  const releaseCleanup = deferred<void>();
+  const timers = manualDeadline();
+  const coordinator = new ResearchCoordinator(config, store, async job => {
+    await Bun.write(join(job.workspacePath, "report.md"), "# Completed before cleanup\n");
+    // The real executor can wait for process-tree cleanup after selecting its result.
+    enteredCleanup.resolve(job);
+    await releaseCleanup.promise;
+    return successfulResult();
+  }, new Set(["provider/model-fast"]), timers.options);
+  try {
+    const submitted = await coordinator.submitBatch(request([
+      { clientKey: "heartbeat-write", description: "heartbeat write fails during cleanup" },
+    ]), "idem-heartbeat-publication");
+    const job = await enteredCleanup.promise;
+    timers.scheduler.fireInterval(config.heartbeatMs);
+    expect(job.signal.aborted).toBe(true);
+    releaseCleanup.resolve();
+    await flushMicrotasks(20);
+    await expect(coordinator.waitForBatch(submitted.batchId)).rejects.toMatchObject({ code: "resource_error" });
+    const task = coordinator.getTask(job.taskId);
+    expect(task).toMatchObject({ status: "failed", report: null, artifacts: [], error: { code: "resource_error" } });
+    expect(existsSync(join(config.workspaceRoot, "jobs", job.taskId, "artifacts", "detailed-report.md"))).toBe(false);
+    const restarted = new ResearchCoordinator(config, new ResearchStore(config.workspaceRoot), async () => {
+      throw new Error("Terminal resource failure must not rerun");
+    }, new Set(["provider/model-fast"]), timers.options);
+    restarted.start();
+    expect(restarted.getTask(job.taskId)).toEqual(task);
+    await restarted.stop();
+  } finally {
+    releaseCleanup.resolve();
+    await coordinator.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
