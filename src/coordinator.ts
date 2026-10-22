@@ -163,6 +163,9 @@ export class ResearchCoordinator {
         if (existing.requestHash !== hash) {
           throw new ResearchError("idempotency_conflict", "Idempotency key was reused with a different request", 409);
         }
+        const snapshot = this.getBatchSnapshot(existing.batchId, true);
+        if (!snapshot.tasks.some(task => task.status === "queued")) return snapshot;
+        this.pump();
         return this.getBatchSnapshot(existing.batchId, true);
       }
     }
@@ -304,6 +307,13 @@ export class ResearchCoordinator {
       });
       this.store.saveTask(cancelled);
       this.queued = this.queued.filter(queuedId => queuedId !== taskId);
+      if (task.status === "queued") this.executionFailures.delete(taskId);
+      try {
+        this.pump();
+      } catch {
+        // Cancellation is already durable. A following task's dispatch
+        // failure is recorded for its batch waiters and remains retryable.
+      }
       return cancelled;
     }
     if (active.stopReason) {
@@ -346,9 +356,19 @@ export class ResearchCoordinator {
 
   private pump(): void {
     while (!this.stopping && this.active.size < this.config.maxConcurrency) {
-      const taskId = this.queued.shift();
+      const taskId = this.queued[0];
       if (!taskId) return;
-      const task = this.store.getTask(taskId);
+      let task: ResearchTaskSnapshot | undefined;
+      try {
+        task = this.store.getTask(taskId);
+      } catch (error) {
+        // Keep committed work queued so an idempotent retry can dispatch it.
+        const failure = lifecycleError(error);
+        this.executionFailures.set(taskId, failure);
+        throw failure;
+      }
+      this.queued.shift();
+      this.executionFailures.delete(taskId);
       if (!task || task.status !== "queued") continue;
       let resolveDone!: () => void;
       let rejectDone!: (error: unknown) => void;
@@ -374,7 +394,13 @@ export class ResearchCoordinator {
         } else {
           active.resolveDone();
         }
-        this.pump();
+        try {
+          this.pump();
+        } catch {
+          // A dispatch read failure is recorded for batch waiters. There is no
+          // request caller here; retain the queue for retry rather than reject
+          // this background completion promise without a handler.
+        }
       };
       void this.execute(task, active).then(finish, error => {
         active.failure ??= lifecycleError(error);
