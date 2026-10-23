@@ -165,6 +165,17 @@ export class ResearchCoordinator {
         }
         const snapshot = this.getBatchSnapshot(existing.batchId, true);
         if (!snapshot.tasks.some(task => task.status === "queued")) return snapshot;
+        const missing = snapshot.tasks.filter(task =>
+          task.status === "queued" && !this.queued.includes(task.taskId) && !this.active.has(task.taskId));
+        if (missing.length > 0) {
+          // A successful commit can be followed by a failed read-back before
+          // submitBatch registers the tasks in the in-memory dispatch queue.
+          const submission = this.store.getSubmission(existing.batchId);
+          if (!submission || submission.phase !== "committed") {
+            throw new ResearchError("resource_error", "resource_error: Research submission was not durably committed", 500);
+          }
+          for (const task of missing) this.queued.push(task.taskId);
+        }
         this.pump();
         return this.getBatchSnapshot(existing.batchId, true);
       }

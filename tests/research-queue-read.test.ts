@@ -189,3 +189,115 @@ test("completed idempotent replays are not blocked by an unrelated dispatch read
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+class TransientCommitReadStore extends ResearchStore {
+  failNextRead = false;
+  override saveSubmission(record: ResearchSubmissionRecord) {
+    super.saveSubmission(record);
+    if (record.phase === "committed") this.failNextRead = true;
+  }
+  override getSubmission(batchId: string) {
+    if (this.failNextRead) {
+      this.failNextRead = false;
+      throw new ResearchError("resource_error", "one transient commit read failure", 500);
+    }
+    return super.getSubmission(batchId);
+  }
+}
+
+test("idempotent retry resumes a task after a transient commit read-back failure", async () => {
+  const root = mkdtempSync(join(tmpdir(), "relego-queue-read-"));
+  const config = createResearchConfig({ port: 0, workspaceRoot: root, opencodeCommand: [process.execPath], defaultModel: "provider/model", defaultTimeoutMs: 1000, maxConcurrency: 1, heartbeatMs: 1000 });
+  const store = new TransientCommitReadStore(root);
+  let calls = 0;
+  const coordinator = new ResearchCoordinator(config, store, async job => {
+    calls++;
+    writeFileSync(join(job.workspacePath, "report.md"), "# result\n");
+    return { finalText: JSON.stringify({ summary: "ok", feasibility: { verdict: "feasible", notes: "" }, evidence: [], risks: [], unknowns: ["fixture"], reportPath: "report.md" }) };
+  }, new Set(["provider/model"]));
+  const request = { protocolVersion: RESEARCH_PROTOCOL_VERSION, tasks: [{ description: "offline task" }] };
+  try {
+    coordinator.start();
+    await expect(coordinator.submitBatch(request, "retry-commit-read")).rejects.toMatchObject({ code: "resource_error" });
+    const retry = await coordinator.submitBatch(request, "retry-commit-read");
+    // This is deterministic: the executor increments before its first suspension.
+    expect(calls).toBe(1);
+    expect((await coordinator.waitForBatch(retry.batchId)).tasks[0]?.status).toBe("succeeded");
+    expect(store.listTasks()).toHaveLength(1);
+  } finally {
+    await coordinator.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+for (const phase of ["prepared", "aborted", "missing"] as const) {
+  test(`idempotent retry does not recover an unverified ${phase} submission`, async () => {
+    const root = mkdtempSync(join(tmpdir(), "relego-commit-proof-"));
+    const config = createResearchConfig({ port: 0, workspaceRoot: root, opencodeCommand: [process.execPath], defaultModel: "provider/model", defaultTimeoutMs: 1000, maxConcurrency: 1, heartbeatMs: 1000 });
+    class Store extends TransientCommitReadStore {
+      hideCommit = false;
+      override getSubmission(batchId: string) {
+        const record = super.getSubmission(batchId);
+        if (!this.hideCommit || !record) return record;
+        return phase === "missing" ? undefined : { ...record, phase };
+      }
+    }
+    const store = new Store(root);
+    let calls = 0;
+    const coordinator = new ResearchCoordinator(config, store, async job => {
+      calls++;
+      writeFileSync(join(job.workspacePath, "report.md"), "# result\n");
+      return { finalText: JSON.stringify({ summary: "ok", feasibility: { verdict: "feasible", notes: "" }, evidence: [], risks: [], unknowns: ["fixture"], reportPath: "report.md" }) };
+    }, new Set(["provider/model"]));
+    const request = { protocolVersion: RESEARCH_PROTOCOL_VERSION, tasks: [{ description: "recover only a proven commit" }] };
+    try {
+      coordinator.start();
+      await expect(coordinator.submitBatch(request, "commit-proof")).rejects.toMatchObject({ code: "resource_error" });
+      store.hideCommit = true;
+      await expect(coordinator.submitBatch(request, "commit-proof")).rejects.toMatchObject({ code: "resource_error" });
+      expect(calls).toBe(0);
+      store.hideCommit = false;
+      const retry = await coordinator.submitBatch(request, "commit-proof");
+      const result = await coordinator.waitForBatch(retry.batchId);
+      expect(result.tasks[0]?.status).toBe("succeeded");
+      expect(await coordinator.submitBatch(request, "commit-proof")).toEqual(result);
+      expect(calls).toBe(1);
+    } finally {
+      await coordinator.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("idempotent retry recovers a committed batch after repeated read-back errors without duplicate execution", async () => {
+  const root = mkdtempSync(join(tmpdir(), "relego-queue-read-"));
+  const config = createResearchConfig({ port: 0, workspaceRoot: root, opencodeCommand: [process.execPath], defaultModel: "provider/model", defaultTimeoutMs: 1000, maxConcurrency: 1, heartbeatMs: 1000 });
+  const store = new TransientCommitReadStore(root);
+  let calls = 0;
+  const coordinator = new ResearchCoordinator(config, store, async job => {
+    calls++;
+    writeFileSync(join(job.workspacePath, "report.md"), "# result\n");
+    return { finalText: JSON.stringify({ summary: "ok", feasibility: { verdict: "feasible", notes: "" }, evidence: [], risks: [], unknowns: ["fixture"], reportPath: "report.md" }) };
+  }, new Set(["provider/model"]));
+  const request = { protocolVersion: RESEARCH_PROTOCOL_VERSION, tasks: [{ description: "first" }, { description: "second" }] };
+  try {
+    coordinator.start();
+    await expect(coordinator.submitBatch(request, "retry-commit-read")).rejects.toMatchObject({ code: "resource_error" });
+    store.failNextRead = true;
+    await expect(coordinator.submitBatch(request, "retry-commit-read")).rejects.toMatchObject({ code: "resource_error" });
+    expect(calls).toBe(0);
+    const retry = await coordinator.submitBatch(request, "retry-commit-read");
+    // This is deterministic: the executor increments before its first suspension.
+    expect(calls).toBe(1);
+    const result = await coordinator.waitForBatch(retry.batchId);
+    expect(result.tasks.map(task => task.status)).toEqual(["succeeded", "succeeded"]);
+    expect(await coordinator.submitBatch(request, "retry-commit-read")).toEqual(result);
+    expect(calls).toBe(2);
+    expect(store.listTasks()).toHaveLength(2);
+  } finally {
+    await coordinator.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
