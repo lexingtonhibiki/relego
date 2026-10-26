@@ -1122,3 +1122,67 @@ test("restart interrupts running work without rerunning it and separately resume
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+for (const failedStatus of ["cancelling", "cancelled"] as const) {
+  test(`explicit cancel retry recovers after ${failedStatus} persistence failure`, async () => {
+    const { root, config } = fixtureRoot("relego-cancel-retry-");
+    let fail = true;
+    let executions = 0;
+    const store = new FailingResearchStore(config.workspaceRoot, task => {
+      if (fail && task.status === failedStatus) {
+        fail = false;
+        return true;
+      }
+      return false;
+    });
+    const coordinator = new ResearchCoordinator(config, store, job => {
+      executions += 1;
+      return new Promise((_resolve, reject) => {
+        job.signal.addEventListener("abort", () => reject(job.signal.reason), { once: true });
+      });
+    }, new Set(["provider/model-fast"]), manualDeadline().options);
+    try {
+      const batch = await coordinator.submitBatch(request([{ clientKey: "a", description: "cancel retry" }]));
+      const taskId = batch.tasks[0]!.taskId;
+      await expect(coordinator.cancelTask(taskId)).rejects.toMatchObject({ code: "resource_error" });
+      await expect(coordinator.waitForBatch(batch.batchId)).rejects.toMatchObject({ code: "resource_error" });
+      expect((await coordinator.cancelTask(taskId)).status).toBe("cancelled");
+      expect((await coordinator.waitForBatch(batch.batchId)).tasks[0]!.status).toBe("cancelled");
+      expect((await coordinator.cancelTask(taskId)).status).toBe("cancelled");
+      expect(executions).toBe(1);
+    } finally {
+      await coordinator.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("failed cancellation retry retains its error and another task's failure", async () => {
+  const { root, config } = fixtureRoot("relego-cancel-independent-");
+  const fail = new Set<string>();
+  const store = new FailingResearchStore(config.workspaceRoot, task => task.status === "cancelled" && fail.has(task.taskId));
+  const coordinator = new ResearchCoordinator(config, store, job => new Promise((_resolve, reject) => {
+    job.signal.addEventListener("abort", () => reject(job.signal.reason), { once: true });
+  }), new Set(["provider/model-fast"]), manualDeadline().options);
+  try {
+    const batch = await coordinator.submitBatch(request([
+      { clientKey: "a", description: "cancel a" }, { clientKey: "b", description: "cancel b" },
+    ]));
+    const [a, b] = batch.tasks.map(task => task.taskId);
+    fail.add(a!);
+    fail.add(b!);
+    await expect(coordinator.cancelTask(a!)).rejects.toMatchObject({ code: "resource_error" });
+    await expect(coordinator.cancelTask(b!)).rejects.toMatchObject({ code: "resource_error" });
+    await expect(coordinator.cancelTask(a!)).rejects.toMatchObject({ code: "resource_error" });
+    await expect(coordinator.waitForBatch(batch.batchId)).rejects.toMatchObject({ code: "resource_error" });
+    fail.delete(a!);
+    expect((await coordinator.cancelTask(a!)).status).toBe("cancelled");
+    await expect(coordinator.waitForBatch(batch.batchId)).rejects.toMatchObject({ code: "resource_error" });
+    fail.delete(b!);
+    expect((await coordinator.cancelTask(b!)).status).toBe("cancelled");
+    expect((await coordinator.waitForBatch(batch.batchId)).tasks.map(task => task.status)).toEqual(["cancelled", "cancelled"]);
+  } finally {
+    await coordinator.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

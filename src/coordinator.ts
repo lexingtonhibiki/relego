@@ -308,8 +308,11 @@ export class ResearchCoordinator {
 
   async cancelTask(taskId: string): Promise<ResearchTaskSnapshot> {
     const task = this.getTask(taskId);
-    if (isResearchTerminalStatus(task.status)) return task;
     const active = this.active.get(taskId);
+    if (isResearchTerminalStatus(task.status)) {
+      if (task.status === "cancelled" && !active) this.executionFailures.delete(taskId);
+      return task;
+    }
     if (!active) {
       const cancelled = this.finishTerminal(task, {
         status: "cancelled",
@@ -318,7 +321,7 @@ export class ResearchCoordinator {
       });
       this.store.saveTask(cancelled);
       this.queued = this.queued.filter(queuedId => queuedId !== taskId);
-      if (task.status === "queued") this.executionFailures.delete(taskId);
+      this.executionFailures.delete(taskId);
       try {
         this.pump();
       } catch {
